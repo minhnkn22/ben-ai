@@ -55,7 +55,10 @@ function AssessmentContent() {
       body: JSON.stringify({ messages: messages ?? [], revealId }),
     })
     const data = await res.json()
-    if (data.revealId) router.push(`/reveal/${data.revealId}`)
+    const id = data.revealId ?? revealId
+    if (id) {
+      router.push(`/generating?reveal_id=${id}`)
+    }
   }
 
   async function saveAndContinue() {
@@ -111,7 +114,7 @@ function AssessmentContent() {
             animation: 'spin 0.8s linear infinite',
             margin: '0 auto 20px',
           }} />
-          <p style={{ fontSize: '14px', color: 'var(--text-muted)' }}>Building your pattern...</p>
+          <p style={{ fontSize: '14px', color: 'var(--text-muted)' }}>Preparing your synthesis...</p>
         </div>
         <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
       </div>
