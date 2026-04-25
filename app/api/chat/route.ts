@@ -91,10 +91,14 @@ export async function POST(req: NextRequest) {
 
     // Convert messages array to Gemini chat history format
     // All messages except the last one go into history; last user message is the new input
-    const history = messages.slice(0, -1).map((m: { role: string; content: string }) => ({
+    // Gemini requires history to start with a 'user' turn — strip any leading model messages
+    // (the hardcoded opening message is assistant-first and doesn't need to be in history)
+    const rawHistory = messages.slice(0, -1).map((m: { role: string; content: string }) => ({
       role: m.role === 'assistant' ? 'model' : 'user',
       parts: [{ text: m.content }],
     }))
+    const firstUserIdx = rawHistory.findIndex((m: { role: string }) => m.role === 'user')
+    const history = firstUserIdx >= 0 ? rawHistory.slice(firstUserIdx) : []
 
     const lastMessage = messages[messages.length - 1]
     const chat = model.startChat({ history })
