@@ -1,9 +1,9 @@
 import { createClient } from '@/lib/supabase/server'
-import Anthropic from '@anthropic-ai/sdk'
+import { GoogleGenerativeAI } from '@google/generative-ai'
 import { NextRequest, NextResponse } from 'next/server'
 import mammoth from 'mammoth'
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+const genai = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!)
 
 export async function POST(req: NextRequest) {
   const supabase = await createClient()
@@ -35,35 +35,22 @@ export async function POST(req: NextRequest) {
       parseNotes = `DOCX extraction failed: ${err instanceof Error ? err.message : 'unknown error'}`
     }
   } else {
-    // PDF: use Claude's native PDF read
+    // PDF: use Gemini's native PDF read via inline data
     try {
       const base64 = Buffer.from(bytes).toString('base64')
-      const response = await anthropic.messages.create({
-        model: 'claude-sonnet-4-5',
-        max_tokens: 4096,
-        messages: [
-          {
-            role: 'user',
-            content: [
-              {
-                type: 'document',
-                source: {
-                  type: 'base64',
-                  media_type: 'application/pdf',
-                  data: base64,
-                },
-              },
-              {
-                type: 'text',
-                text: 'Extract all text from this CV/resume. Return the raw text content only — employer names, roles, dates, responsibilities, education, skills. No formatting, no commentary. If any sections appear incomplete or truncated, note them at the end with "PARSE NOTE: [what was missing]".',
-              },
-            ],
+      const model = genai.getGenerativeModel({ model: 'gemini-2.0-flash' })
+      const result = await model.generateContent([
+        {
+          inlineData: {
+            mimeType: 'application/pdf',
+            data: base64,
           },
-        ],
-      })
-      parsedText = response.content[0].type === 'text' ? response.content[0].text : ''
+        },
+        'Extract all text from this CV/resume. Return the raw text content only — employer names, roles, dates, responsibilities, education, skills. No formatting, no commentary. If any sections appear incomplete or truncated, note them at the end with "PARSE NOTE: [what was missing]".',
+      ])
+      parsedText = result.response.text()
 
-      // Extract parse notes if Claude flagged anything
+      // Extract parse notes if Gemini flagged anything
       const parseNoteMatch = parsedText.match(/PARSE NOTE:\s*(.+)$/i)
       if (parseNoteMatch) {
         parseNotes = parseNoteMatch[1]

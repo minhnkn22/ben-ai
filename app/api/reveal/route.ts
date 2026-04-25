@@ -1,10 +1,10 @@
 import { createClient } from '@/lib/supabase/server'
-import Anthropic from '@anthropic-ai/sdk'
+import { GoogleGenerativeAI } from '@google/generative-ai'
 import { NextRequest, NextResponse } from 'next/server'
-import { readFileSync } from 'fs'
 import path from 'path'
+import { readFileSync } from 'fs'
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+const genai = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!)
 
 function loadPrompt(name: string): string {
   try {
@@ -16,17 +16,16 @@ function loadPrompt(name: string): string {
 }
 
 async function runPass(systemPrompt: string, userContent: string): Promise<string> {
-  const response = await anthropic.messages.create({
-    model: 'claude-sonnet-4-5',
-    max_tokens: 2048,
-    system: systemPrompt,
-    messages: [{ role: 'user', content: userContent }],
+  const model = genai.getGenerativeModel({
+    model: 'gemini-2.0-flash',
+    systemInstruction: systemPrompt,
   })
-  return response.content[0].type === 'text' ? response.content[0].text : ''
+  const result = await model.generateContent(userContent)
+  return result.response.text()
 }
 
 function parseJSON(raw: string): Record<string, unknown> | null {
-  // Strip markdown fences if present (Sonnet ignores "no fences" ~67% of the time)
+  // Strip markdown fences if present
   const cleaned = raw.replace(/^```(?:json)?\n?/m, '').replace(/\n?```\s*$/m, '').trim()
   try {
     return JSON.parse(cleaned)
@@ -63,7 +62,7 @@ export async function POST(req: NextRequest) {
       user_id: user.id,
       cv_document_id: cvDoc?.id ?? null,
       status: 'generating',
-      model_used: 'claude-sonnet-4-5',
+      model_used: 'gemini-2.0-flash',
     })
     .select('id')
     .single()
@@ -74,7 +73,7 @@ export async function POST(req: NextRequest) {
 
   const revealId = revealRow.id
 
-  // Run the 3-pass pipeline (responds immediately with revealId, synthesis runs async)
+  // Run the 3-pass pipeline async
   runSynthesisPipeline(supabase, revealId, user.id, transcriptText, cvText).catch(console.error)
 
   // Return the reveal ID immediately so the client can navigate to /reveal/[id]

@@ -1,8 +1,8 @@
 import { createClient } from '@/lib/supabase/server'
-import Anthropic from '@anthropic-ai/sdk'
+import { GoogleGenerativeAI } from '@google/generative-ai'
 import { NextRequest, NextResponse } from 'next/server'
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+const genai = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!)
 
 const INTAKE_SYSTEM_PROMPT = `You are Ben, a career counselor in conversation with a mid-career professional. You are running a narrative intake — the first stage of a session that will end with a specific, named diagnosis of the friction pattern across their career ("Pattern Reveal"). Your job in this stage is to pull out real stories, not collect data.
 
@@ -83,17 +83,23 @@ export async function POST(req: NextRequest) {
       ? getPostRevealSystemPrompt(reveal ?? {})
       : INTAKE_SYSTEM_PROMPT
 
-    const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-5',
-      max_tokens: 1024,
-      system: systemPrompt,
-      messages: messages.map((m: { role: string; content: string }) => ({
-        role: m.role as 'user' | 'assistant',
-        content: m.content,
-      })),
+    // Gemini uses a different message format — split system from history
+    const model = genai.getGenerativeModel({
+      model: 'gemini-2.0-flash',
+      systemInstruction: systemPrompt,
     })
 
-    const content = response.content[0].type === 'text' ? response.content[0].text : ''
+    // Convert messages array to Gemini chat history format
+    // All messages except the last one go into history; last user message is the new input
+    const history = messages.slice(0, -1).map((m: { role: string; content: string }) => ({
+      role: m.role === 'assistant' ? 'model' : 'user',
+      parts: [{ text: m.content }],
+    }))
+
+    const lastMessage = messages[messages.length - 1]
+    const chat = model.startChat({ history })
+    const result = await chat.sendMessage(lastMessage.content)
+    const content = result.response.text()
 
     const readyToSynthesize =
       stage === 'intake' &&
@@ -102,12 +108,11 @@ export async function POST(req: NextRequest) {
       /have enough to work with|ready to synthesize|let me put this together/i.test(content)
 
     // Save both sides of the conversation
-    const lastUserMsg = messages[messages.length - 1]
-    if (lastUserMsg?.role === 'user') {
+    if (lastMessage?.role === 'user') {
       await supabase.from('intakes').insert({
         user_id: user.id,
         role: 'user',
-        content: lastUserMsg.content,
+        content: lastMessage.content,
         stage,
         reveal_id: stage === 'post_reveal' ? revealId : null,
       })
