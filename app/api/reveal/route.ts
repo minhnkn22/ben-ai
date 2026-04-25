@@ -17,7 +17,7 @@ function loadPrompt(name: string): string {
 
 async function runPass(systemPrompt: string, userContent: string): Promise<string> {
   const model = genai.getGenerativeModel({
-    model: 'gemini-2.0-flash',
+    model: 'gemini-2.5-pro-preview-05-06',
     systemInstruction: systemPrompt,
   })
   const result = await model.generateContent(userContent)
@@ -123,7 +123,7 @@ export async function POST(req: NextRequest) {
         user_id: user.id,
         cv_document_id: cvDoc?.id ?? null,
         status: 'generating',
-        model_used: 'gemini-2.0-flash',
+        model_used: 'gemini-2.5-pro-preview-05-06',
       })
       .select('id')
       .single()
