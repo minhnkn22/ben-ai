@@ -98,3 +98,20 @@ CREATE POLICY "Users read own reactions" ON pattern_reveal_reactions FOR SELECT 
 CREATE POLICY "Users upsert own reactions" ON pattern_reveal_reactions FOR INSERT WITH CHECK (auth.uid() = user_id);
 CREATE POLICY "Users update own reactions" ON pattern_reveal_reactions FOR UPDATE USING (auth.uid() = user_id);
 CREATE POLICY "Service role manages reactions" ON pattern_reveal_reactions FOR ALL USING (auth.role() = 'service_role');
+
+-- ============================================================
+-- 5. FEEDBACK
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS feedback (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  message TEXT NOT NULL,
+  page_url TEXT,
+  user_id UUID REFERENCES profiles(id) ON DELETE SET NULL
+);
+
+ALTER TABLE feedback ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Anyone can insert feedback" ON feedback FOR INSERT WITH CHECK (true);
+CREATE POLICY "Users read own feedback" ON feedback FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "Service role manages feedback" ON feedback FOR ALL USING (auth.role() = 'service_role');
