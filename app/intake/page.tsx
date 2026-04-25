@@ -12,15 +12,18 @@ const WAIT_MESSAGES = [
   'Almost there…',
 ]
 
+const OPENING_MESSAGE = "Tell me what you hated about your last three jobs. Start wherever feels most alive — not the polished version, the real one."
+
 export default function IntakePage() {
-  const [messages, setMessages] = useState<Message[]>([])
+  const [messages, setMessages] = useState<Message[]>([
+    { role: 'assistant', content: OPENING_MESSAGE }
+  ])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [cvUploaded, setCvUploaded] = useState(false)
   const [cvName, setCvName] = useState<string | null>(null)
   const [synthesizing, setSynthesizing] = useState(false)
   const [waitMsg, setWaitMsg] = useState(WAIT_MESSAGES[0])
-  const [started, setStarted] = useState(false)
   const waitTimerRef = useRef<NodeJS.Timeout | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const router = useRouter()
@@ -28,29 +31,6 @@ export default function IntakePage() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
-
-  // Start the intake when the page loads
-  useEffect(() => {
-    if (!started) {
-      setStarted(true)
-      startIntake()
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  async function startIntake() {
-    setLoading(true)
-    const res = await fetch('/api/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messages: [], stage: 'intake' }),
-    })
-    const data = await res.json()
-    if (data.content) {
-      setMessages([{ role: 'assistant', content: data.content }])
-    }
-    setLoading(false)
-  }
 
   async function sendMessage() {
     if (!input.trim() || loading) return
@@ -60,25 +40,35 @@ export default function IntakePage() {
     setInput('')
     setLoading(true)
 
-    const res = await fetch('/api/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messages: newMessages, stage: 'intake', cvUploaded }),
-    })
-    const data = await res.json()
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: newMessages, stage: 'intake', cvUploaded }),
+      })
 
-    if (data.content) {
-      setMessages(prev => [...prev, { role: 'assistant', content: data.content }])
-    }
+      if (!res.ok) {
+        console.error('Chat API error:', res.status)
+        setLoading(false)
+        return
+      }
 
-    // If Ben says he has enough, and CV is uploaded, start synthesis
-    if (data.readyToSynthesize && cvUploaded) {
+      const data = await res.json()
+
+      if (data.content) {
+        setMessages(prev => [...prev, { role: 'assistant', content: data.content }])
+      }
+
+      if (data.readyToSynthesize && cvUploaded) {
+        setLoading(false)
+        await startSynthesis(newMessages)
+        return
+      }
+    } catch (err) {
+      console.error('sendMessage error:', err)
+    } finally {
       setLoading(false)
-      await startSynthesis(newMessages)
-      return
     }
-
-    setLoading(false)
   }
 
   async function handleCvUpload(e: React.ChangeEvent<HTMLInputElement>) {
@@ -89,18 +79,21 @@ export default function IntakePage() {
     const formData = new FormData()
     formData.append('cv', file)
 
-    const res = await fetch('/api/cv-upload', { method: 'POST', body: formData })
-    const data = await res.json()
-    if (data.ok) {
-      setCvUploaded(true)
-      // Let Ben acknowledge the CV
-      setMessages(prev => [
-        ...prev,
-        {
-          role: 'assistant',
-          content: `Got it — I can see your CV (${file.name}). Before I go further: is there anything important that isn't on here? A role you left for reasons that aren't captured, a project that didn't make it, something about how you left a job that matters?`,
-        },
-      ])
+    try {
+      const res = await fetch('/api/cv-upload', { method: 'POST', body: formData })
+      const data = await res.json()
+      if (data.ok) {
+        setCvUploaded(true)
+        setMessages(prev => [
+          ...prev,
+          {
+            role: 'assistant',
+            content: `Got it — I can see your CV (${file.name}). Before I go further: is there anything important that isn't on here? A role you left for reasons that aren't captured, a project that didn't make it, something about how you left a job that matters?`,
+          },
+        ])
+      }
+    } catch (err) {
+      console.error('CV upload error:', err)
     }
   }
 
@@ -112,18 +105,21 @@ export default function IntakePage() {
       setWaitMsg(WAIT_MESSAGES[idx])
     }, 8000)
 
-    const res = await fetch('/api/reveal', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messages: transcriptMessages }),
-    })
-    const data = await res.json()
-
-    if (waitTimerRef.current) clearInterval(waitTimerRef.current)
-    setSynthesizing(false)
-
-    if (data.revealId) {
-      router.push(`/reveal/${data.revealId}`)
+    try {
+      const res = await fetch('/api/reveal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: transcriptMessages }),
+      })
+      const data = await res.json()
+      if (data.revealId) {
+        router.push(`/reveal/${data.revealId}`)
+      }
+    } catch (err) {
+      console.error('Synthesis error:', err)
+    } finally {
+      if (waitTimerRef.current) clearInterval(waitTimerRef.current)
+      setSynthesizing(false)
     }
   }
 
@@ -131,10 +127,7 @@ export default function IntakePage() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-stone-50">
         <div className="text-center">
-          <div
-            key={waitMsg}
-            className="text-stone-600 text-lg animate-pulse transition-opacity duration-700"
-          >
+          <div key={waitMsg} className="text-stone-600 text-lg animate-pulse transition-opacity duration-700">
             {waitMsg}
           </div>
         </div>
@@ -144,12 +137,10 @@ export default function IntakePage() {
 
   return (
     <div className="min-h-screen bg-stone-50 flex flex-col max-w-2xl mx-auto px-4">
-      {/* Header */}
       <div className="py-6 border-b border-stone-100">
         <h1 className="text-stone-900 font-semibold">Ben</h1>
       </div>
 
-      {/* Messages */}
       <div className="flex-1 overflow-y-auto py-6 space-y-4">
         {messages.map((msg, i) => (
           <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
@@ -174,23 +165,16 @@ export default function IntakePage() {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* CV upload (shown after a few turns if not yet uploaded) */}
       {!cvUploaded && messages.length >= 3 && (
         <div className="py-3 border-t border-stone-100">
           <label className="flex items-center gap-2 text-sm text-stone-500 cursor-pointer hover:text-stone-700">
-            <input
-              type="file"
-              accept=".pdf,.docx"
-              className="hidden"
-              onChange={handleCvUpload}
-            />
+            <input type="file" accept=".pdf,.docx" className="hidden" onChange={handleCvUpload} />
             <span>+ Upload your CV</span>
             {cvName && <span className="text-stone-400">({cvName})</span>}
           </label>
         </div>
       )}
 
-      {/* Input */}
       <div className="py-4 border-t border-stone-100">
         <div className="flex gap-2">
           <input
