@@ -11,6 +11,13 @@ type Evidence = {
   why_it_matters: string
 }
 
+type CareerPath = {
+  role: string
+  why_it_fits: string
+  what_the_pivot_looks_like: string
+  watch_out_for: string
+}
+
 type PatternReveal = {
   id: string
   headline?: string
@@ -19,6 +26,7 @@ type PatternReveal = {
   failure_prediction: string | null
   thrive_conditions: string | null
   one_question: string | null
+  career_paths?: CareerPath[] | null
   status: string
 }
 
@@ -45,7 +53,7 @@ export default function RevealClient({ reveal: initialReveal, polling }: Props) 
     const interval = setInterval(async () => {
       const { data } = await supabase
         .from('pattern_reveals')
-        .select('id, headline, pattern_paragraph, evidence_json, failure_prediction, thrive_conditions, one_question, status')
+        .select('id, headline, pattern_paragraph, evidence_json, failure_prediction, thrive_conditions, one_question, career_paths, status')
         .eq('id', reveal.id)
         .single()
       if (data && (data.status === 'completed' || data.status === 'failed')) {
@@ -258,8 +266,49 @@ export default function RevealClient({ reveal: initialReveal, polling }: Props) 
           </section>
         )}
 
-        {/* 6. Reaction */}
-        <section style={{ borderTop: '1px solid var(--border)', paddingTop: '32px', marginBottom: '40px' }}>
+        {/* 6. Where to aim next — career paths */}
+        {reveal.career_paths && reveal.career_paths.length > 0 && (
+          <div style={{ marginTop: '48px', paddingTop: '32px', borderTop: '1px solid var(--border)' }}>
+            <p style={{
+              fontSize: '11px', fontWeight: 600, letterSpacing: '0.09em',
+              textTransform: 'uppercase', color: 'var(--text-muted)',
+              marginBottom: '24px',
+            }}>
+              Where to aim next
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              {reveal.career_paths.map((path, i) => (
+                <div key={i} style={{
+                  border: '1px solid var(--border)',
+                  borderRadius: '10px',
+                  padding: '20px 24px',
+                }}>
+                  <p style={{
+                    fontSize: '15px', fontWeight: 600,
+                    color: 'var(--text)', marginBottom: '12px',
+                    letterSpacing: '-0.01em',
+                  }}>
+                    {path.role}
+                  </p>
+                  <p style={{ fontSize: '14px', lineHeight: 1.65, color: 'var(--text-muted)', marginBottom: '8px' }}>
+                    {path.why_it_fits}
+                  </p>
+                  <p style={{ fontSize: '13px', lineHeight: 1.6, color: 'var(--text-muted)', marginBottom: '8px' }}>
+                    <strong style={{ color: 'var(--text)', fontWeight: 500 }}>The pivot: </strong>
+                    {path.what_the_pivot_looks_like}
+                  </p>
+                  <p style={{ fontSize: '13px', lineHeight: 1.6, color: 'var(--text-muted)' }}>
+                    <strong style={{ color: 'var(--text)', fontWeight: 500 }}>Watch out for: </strong>
+                    {path.watch_out_for}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* 7. Reaction */}
+        <section style={{ borderTop: '1px solid var(--border)', paddingTop: '32px', marginBottom: '40px', marginTop: '48px' }}>
           {!reactionSaved ? (
             <>
               <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '14px' }}>
@@ -325,7 +374,7 @@ export default function RevealClient({ reveal: initialReveal, polling }: Props) 
           )}
         </section>
 
-        {/* 7. Post-reveal chat */}
+        {/* 8. Post-reveal chat */}
         {reactionSaved && (
           <section>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', marginBottom: '20px' }}>

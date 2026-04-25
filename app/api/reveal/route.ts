@@ -69,6 +69,15 @@ function formatAssessmentContext(assessment: Record<string, unknown> | null): st
 
 const HEADLINE_INSTRUCTION = `Also produce a "headline" field: a 5-8 word punchy label for this person's career pattern. Examples: "The Executor Who Outgrows Every Room", "The Visionary Who Can't Finish", "The Expert Nobody Listens To". Capitalise each word. No quotes. Output as part of the JSON.`
 
+const CAREER_PATHS_INSTRUCTION = `Also produce a "career_paths" array with 2-3 specific role recommendations. Each item:
+{
+  "role": "specific job title + company type, e.g. 'Head of Product at early-stage B2B SaaS'",
+  "why_it_fits": "1-2 sentences connecting this role to the person's pattern and thrive conditions",
+  "what_the_pivot_looks_like": "1-2 sentences on how to actually get there from where they are",
+  "watch_out_for": "1 sentence on the risk or trap in this path given their pattern"
+}
+Be specific. Not 'Product Manager' — 'Head of Product at a 20-person Series A startup where the roadmap is still undefined'. The specificity is the value.`
+
 export async function POST(req: NextRequest) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -177,6 +186,8 @@ async function runSynthesisPipeline(
 
 ${HEADLINE_INSTRUCTION}
 
+${CAREER_PATHS_INSTRUCTION}
+
 ---
 
 ## Intake transcript
@@ -237,6 +248,8 @@ Now run the 4-criterion gate check. Return only the JSON object.`
 
 ${HEADLINE_INSTRUCTION}
 
+${CAREER_PATHS_INSTRUCTION}
+
 ---
 
 ## Original draft
@@ -289,6 +302,7 @@ async function saveFinalReveal(
     failure_prediction: final.failure_prediction ?? null,
     thrive_conditions: final.thrive_conditions ?? null,
     one_question: final.one_question ?? null,
+    career_paths: final.career_paths ?? null,
     draft_json: draftJSON,
     critique_json: critiqueJSON,
     revise_json: reviseJSON,

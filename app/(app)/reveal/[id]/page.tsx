@@ -8,6 +8,13 @@ type Evidence = {
   why_it_matters: string
 }
 
+type CareerPath = {
+  role: string
+  why_it_fits: string
+  what_the_pivot_looks_like: string
+  watch_out_for: string
+}
+
 type PatternReveal = {
   id: string
   headline?: string
@@ -16,6 +23,7 @@ type PatternReveal = {
   failure_prediction: string | null
   thrive_conditions: string | null
   one_question: string | null
+  career_paths: CareerPath[] | null
   status: string
 }
 
@@ -27,7 +35,7 @@ export default async function RevealPage({ params }: { params: Promise<{ id: str
 
   const { data: reveal } = await supabase
     .from('pattern_reveals')
-    .select('id, headline, pattern_paragraph, evidence_json, failure_prediction, thrive_conditions, one_question, status')
+    .select('id, headline, pattern_paragraph, evidence_json, failure_prediction, thrive_conditions, one_question, career_paths, status')
     .eq('id', id)
     .eq('user_id', user!.id)
     .single()
