@@ -5,6 +5,13 @@ import { useRouter } from 'next/navigation'
 
 type Message = { role: 'user' | 'assistant'; content: string }
 
+interface ExtractionReport {
+  extracted: string[]
+  missing: string[]
+  quality: 'good' | 'partial' | 'poor'
+  notes: string
+}
+
 const WAIT_MESSAGES = [
   'Reading your story…',
   'Finding the pattern…',
@@ -24,6 +31,10 @@ export default function IntakePage() {
   const [cvName, setCvName] = useState<string | null>(null)
   const [synthesizing, setSynthesizing] = useState(false)
   const [waitMsg, setWaitMsg] = useState(WAIT_MESSAGES[0])
+  const [cvParseStatus, setCvParseStatus] = useState<'ok' | 'partial' | 'failed' | null>(null)
+  const [cvExtractionReport, setCvExtractionReport] = useState<ExtractionReport | null>(null)
+  const [cvParseNotes, setCvParseNotes] = useState<string | null>(null)
+  const [cvFeedbackVisible, setCvFeedbackVisible] = useState(false)
   const waitTimerRef = useRef<NodeJS.Timeout | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
@@ -82,6 +93,11 @@ export default function IntakePage() {
       const data = await res.json()
       if (data.ok) {
         setCvUploaded(true)
+        setCvParseStatus(data.parseStatus ?? null)
+        setCvExtractionReport(data.extractionReport ?? null)
+        setCvParseNotes(data.parseNotes ?? null)
+        // Fade in the feedback badge after a brief delay
+        setTimeout(() => setCvFeedbackVisible(true), 100)
         setMessages(prev => [
           ...prev,
           {
@@ -127,6 +143,42 @@ export default function IntakePage() {
     }
   }
 
+  function renderCvParseFeedback() {
+    if (!cvParseStatus) return null
+
+    let color = '#22c55e'
+    let text = ''
+
+    if (cvParseStatus === 'ok') {
+      color = '#22c55e'
+      const extracted = cvExtractionReport?.extracted ?? []
+      text = '✓ CV parsed' + (extracted.length > 0 ? ' — ' + extracted.join(' · ') : '')
+    } else if (cvParseStatus === 'partial') {
+      color = '#f59e0b'
+      const missing = cvExtractionReport?.missing ?? []
+      text = '⚠ Partially parsed' + (missing.length > 0 ? ' — couldn\'t find: ' + missing.join(', ') : '')
+    } else {
+      color = '#ef4444'
+      const notes = cvExtractionReport?.notes ?? cvParseNotes ?? 'Could not read CV well.'
+      text = '✗ Couldn\'t read CV well — ' + notes + ' You can still continue.'
+    }
+
+    return (
+      <div style={{
+        marginTop: '6px',
+        fontSize: '12px',
+        color,
+        opacity: cvFeedbackVisible ? 1 : 0,
+        transition: 'opacity 0.4s ease',
+        lineHeight: 1.4,
+        maxWidth: '280px',
+        textAlign: 'right',
+      }}>
+        {text}
+      </div>
+    )
+  }
+
   if (synthesizing) {
     return (
       <div style={{
@@ -156,37 +208,41 @@ export default function IntakePage() {
       {/* Header — CV upload only, no wordmark */}
       <header style={{
         flexShrink: 0,
-        display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
-        padding: '0 20px', height: '56px',
+        display: 'flex', alignItems: 'flex-start', justifyContent: 'flex-end',
+        padding: '0 20px', paddingTop: '8px', minHeight: '56px',
         borderBottom: '1px solid var(--border)',
       }}>
-        {/* CV upload */}
-        {!cvUploaded ? (
-          <label style={{
-            display: 'flex', alignItems: 'center', gap: '6px',
-            fontSize: '13px', color: 'var(--text-muted)',
-            cursor: 'pointer', padding: '6px 12px',
-            border: '1px solid var(--border)', borderRadius: '6px',
-            transition: 'border-color 0.15s',
-          }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
-            </svg>
-            Upload CV
-            <input type="file" accept=".pdf,.docx" style={{ display: 'none' }} onChange={handleCvUpload} />
-          </label>
-        ) : (
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: '6px',
-            fontSize: '13px', color: 'var(--text-muted)',
-            padding: '6px 12px',
-          }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <polyline points="20 6 9 17 4 12"/>
-            </svg>
-            {cvName}
-          </div>
-        )}
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+          {/* CV upload */}
+          {!cvUploaded ? (
+            <label style={{
+              display: 'flex', alignItems: 'center', gap: '6px',
+              fontSize: '13px', color: 'var(--text-muted)',
+              cursor: 'pointer', padding: '6px 12px',
+              border: '1px solid var(--border)', borderRadius: '6px',
+              transition: 'border-color 0.15s',
+            }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
+              </svg>
+              Upload CV
+              <input type="file" accept=".pdf,.docx" style={{ display: 'none' }} onChange={handleCvUpload} />
+            </label>
+          ) : (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: '6px',
+              fontSize: '13px', color: 'var(--text-muted)',
+              padding: '6px 12px',
+            }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <polyline points="20 6 9 17 4 12"/>
+              </svg>
+              {cvName}
+            </div>
+          )}
+          {/* Parse feedback badge — shown after upload */}
+          {cvUploaded && renderCvParseFeedback()}
+        </div>
       </header>
 
       {/* Messages */}

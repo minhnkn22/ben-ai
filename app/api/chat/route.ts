@@ -67,6 +67,33 @@ The flip: ${reveal.thrive_conditions ?? ''}
 Continue the conversation. The user may want to go deeper, push back, ask about specific jobs, or explore what this means practically. Follow their lead. Take positions once you have evidence. Push back when warranted. Do not flatter. Do not rush to new topics — linger on what the user brings up.`
 }
 
+type Message = { role: string; content: string }
+
+const COMPACTION_THRESHOLD = 20
+const KEEP_RECENT = 8
+
+async function compactHistory(messages: Message[]): Promise<{ compacted: boolean; messages: Message[]; summary?: string }> {
+  if (messages.length <= COMPACTION_THRESHOLD) return { compacted: false, messages }
+
+  const toSummarize = messages.slice(0, messages.length - KEEP_RECENT)
+  const recent = messages.slice(messages.length - KEEP_RECENT)
+
+  // Use Gemini Flash (fast/cheap) to summarize
+  const summaryModel = genai.getGenerativeModel({ model: 'gemini-2.0-flash' })
+  const summaryPrompt = `Summarize the following career counseling conversation in 200 words. Focus on: key career facts shared, main themes, and what questions Ben has already asked. Be factual and dense.\n\n${toSummarize.map(m => `${m.role}: ${m.content}`).join('\n')}`
+  const result = await summaryModel.generateContent(summaryPrompt)
+  const summary = result.response.text()
+
+  // Inject summary as first user+assistant exchange
+  const compactedMessages: Message[] = [
+    { role: 'user', content: '[Earlier conversation summary for context]' },
+    { role: 'assistant', content: `Context from earlier in our conversation: ${summary}` },
+    ...recent,
+  ]
+
+  return { compacted: true, messages: compactedMessages, summary }
+}
+
 export async function POST(req: NextRequest) {
   try {
     const supabase = await createClient()
@@ -83,6 +110,9 @@ export async function POST(req: NextRequest) {
       ? getPostRevealSystemPrompt(reveal ?? {})
       : INTAKE_SYSTEM_PROMPT
 
+    // Compact history if too long
+    const { messages: compactedMessages } = await compactHistory(messages as Message[])
+
     // Gemini uses a different message format — split system from history
     const model = genai.getGenerativeModel({
       model: 'gemini-2.0-flash',
@@ -93,14 +123,14 @@ export async function POST(req: NextRequest) {
     // All messages except the last one go into history; last user message is the new input
     // Gemini requires history to start with a 'user' turn — strip any leading model messages
     // (the hardcoded opening message is assistant-first and doesn't need to be in history)
-    const rawHistory = messages.slice(0, -1).map((m: { role: string; content: string }) => ({
+    const rawHistory = compactedMessages.slice(0, -1).map((m: Message) => ({
       role: m.role === 'assistant' ? 'model' : 'user',
       parts: [{ text: m.content }],
     }))
     const firstUserIdx = rawHistory.findIndex((m: { role: string }) => m.role === 'user')
     const history = firstUserIdx >= 0 ? rawHistory.slice(firstUserIdx) : []
 
-    const lastMessage = messages[messages.length - 1]
+    const lastMessage = compactedMessages[compactedMessages.length - 1]
     const chat = model.startChat({ history })
     const result = await chat.sendMessage(lastMessage.content)
     const content = result.response.text()
@@ -111,12 +141,13 @@ export async function POST(req: NextRequest) {
       messages.length >= 8 &&
       /have enough to work with|ready to synthesize|let me put this together/i.test(content)
 
-    // Save both sides of the conversation
-    if (lastMessage?.role === 'user') {
+    // Save both sides of the conversation (use original last message for logging)
+    const originalLastMessage = messages[messages.length - 1]
+    if (originalLastMessage?.role === 'user') {
       await supabase.from('intakes').insert({
         user_id: user.id,
         role: 'user',
-        content: lastMessage.content,
+        content: originalLastMessage.content,
         stage,
         reveal_id: stage === 'post_reveal' ? revealId : null,
       })

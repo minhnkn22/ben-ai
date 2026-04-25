@@ -5,6 +5,39 @@ import mammoth from 'mammoth'
 
 const genai = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!)
 
+interface ExtractionReport {
+  extracted: string[]
+  missing: string[]
+  quality: 'good' | 'partial' | 'poor'
+  notes: string
+}
+
+async function buildExtractionReport(text: string): Promise<ExtractionReport | null> {
+  try {
+    const model = genai.getGenerativeModel({ model: 'gemini-2.0-flash' })
+    const prompt = `Given the following CV text, produce a JSON object describing what was successfully extracted and what was missing. Return ONLY valid JSON with no markdown fences.
+
+Schema:
+{
+  "extracted": ["list of categories successfully found, e.g. Job titles, Company names, Employment dates, Education, Skills"],
+  "missing": ["list of categories not found, e.g. Salary history, Specific achievements/metrics, Contact information"],
+  "quality": "good" | "partial" | "poor",
+  "notes": "One sentence about what was successfully captured and what was missing."
+}
+
+CV text:
+${text.slice(0, 8000)}`
+
+    const result = await model.generateContent(prompt)
+    const raw = result.response.text().trim()
+    // Strip markdown fences if present
+    const jsonStr = raw.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim()
+    return JSON.parse(jsonStr) as ExtractionReport
+  } catch {
+    return null
+  }
+}
+
 export async function POST(req: NextRequest) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -68,6 +101,25 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // Build extraction report from parsed text (if we have any)
+  let extractionReport: ExtractionReport | null = null
+  if (parsedText.trim() && parseStatus !== 'failed') {
+    extractionReport = await buildExtractionReport(parsedText)
+    if (extractionReport) {
+      // Override status from report quality
+      if (parseStatus === 'ok') {
+        parseStatus = extractionReport.quality === 'good' ? 'ok'
+          : extractionReport.quality === 'partial' ? 'partial'
+          : 'failed'
+      }
+      // Compose parse_notes: notes string + JSON of missing
+      parseNotes = extractionReport.notes
+        + (extractionReport.missing.length > 0
+          ? ' Missing: ' + JSON.stringify(extractionReport.missing)
+          : '')
+    }
+  }
+
   const { data: cvDoc, error } = await supabase
     .from('cv_documents')
     .insert({
@@ -90,5 +142,6 @@ export async function POST(req: NextRequest) {
     id: cvDoc.id,
     parseStatus: cvDoc.parse_status,
     parseNotes: cvDoc.parse_notes,
+    extractionReport,
   })
 }
