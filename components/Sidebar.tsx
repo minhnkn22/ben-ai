@@ -26,8 +26,6 @@ export default function Sidebar({ user, latestRevealId }: SidebarProps) {
   const router = useRouter()
   const [mobileOpen, setMobileOpen] = useState(false)
 
-  const revealHref = latestRevealId ? `/reveal/${latestRevealId}` : '/reveal'
-
   function isActive(href: string) {
     if (href === '/reveal') {
       return pathname.startsWith('/reveal')
@@ -41,20 +39,21 @@ export default function Sidebar({ user, latestRevealId }: SidebarProps) {
     router.push('/login')
   }
 
-  const navItemStyle = (active: boolean): React.CSSProperties => ({
+  const navItemStyle = (active: boolean, disabled?: boolean): React.CSSProperties => ({
     display: 'flex',
     alignItems: 'center',
     gap: '10px',
     padding: '8px 16px',
     fontSize: '13px',
-    color: active ? 'var(--text)' : 'var(--text-muted)',
+    color: disabled ? 'var(--text-muted)' : active ? 'var(--text)' : 'var(--text-muted)',
     fontWeight: active ? 500 : 400,
     textDecoration: 'none',
     borderRadius: '0',
-    cursor: 'pointer',
+    cursor: disabled ? 'default' : 'pointer',
     background: active ? 'var(--bg-hover)' : 'transparent',
     borderLeft: active ? '2px solid var(--accent)' : '2px solid transparent',
     transition: 'background 0.1s',
+    opacity: disabled ? 0.5 : 1,
   })
 
   const sidebarContent = (
@@ -77,12 +76,44 @@ export default function Sidebar({ user, latestRevealId }: SidebarProps) {
       {/* Nav items */}
       <nav style={{ flex: 1, padding: '8px 0' }}>
         {NAV_ITEMS.map(item => {
-          const href = item.href === '/reveal' ? revealHref : item.href
+          if (item.href === '/reveal') {
+            const active = isActive('/reveal')
+            if (latestRevealId) {
+              return (
+                <a
+                  key={item.href}
+                  href={`/reveal/${latestRevealId}`}
+                  style={navItemStyle(active)}
+                  onMouseEnter={e => {
+                    if (!active) (e.currentTarget as HTMLElement).style.background = 'var(--bg-hover)'
+                  }}
+                  onMouseLeave={e => {
+                    if (!active) (e.currentTarget as HTMLElement).style.background = 'transparent'
+                  }}
+                >
+                  <span style={{ fontSize: '14px' }}>{item.icon}</span>
+                  <span>{item.label}</span>
+                </a>
+              )
+            } else {
+              return (
+                <span
+                  key={item.href}
+                  title="Complete your intake first"
+                  style={navItemStyle(false, true)}
+                >
+                  <span style={{ fontSize: '14px' }}>{item.icon}</span>
+                  <span>{item.label}</span>
+                </span>
+              )
+            }
+          }
+
           const active = isActive(item.href)
           return (
             <a
               key={item.href}
-              href={href}
+              href={item.href}
               style={navItemStyle(active)}
               onMouseEnter={e => {
                 if (!active) (e.currentTarget as HTMLElement).style.background = 'var(--bg-hover)'

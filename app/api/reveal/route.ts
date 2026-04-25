@@ -67,6 +67,8 @@ function formatAssessmentContext(assessment: Record<string, unknown> | null): st
   return `\n\nPERSONALITY CONTEXT (self-reported):\n${lines.join('\n')}`
 }
 
+const HEADLINE_INSTRUCTION = `Also produce a "headline" field: a 5-8 word punchy label for this person's career pattern. Examples: "The Executor Who Outgrows Every Room", "The Visionary Who Can't Finish", "The Expert Nobody Listens To". Capitalise each word. No quotes. Output as part of the JSON.`
+
 export async function POST(req: NextRequest) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -173,6 +175,8 @@ async function runSynthesisPipeline(
     // === PASS 1: DRAFT ===
     const draftInput = `${draftPrompt}
 
+${HEADLINE_INSTRUCTION}
+
 ---
 
 ## Intake transcript
@@ -231,6 +235,8 @@ Now run the 4-criterion gate check. Return only the JSON object.`
     // === PASS 3: REVISE ===
     const reviseInput = `${revisePrompt}
 
+${HEADLINE_INSTRUCTION}
+
 ---
 
 ## Original draft
@@ -278,6 +284,7 @@ async function saveFinalReveal(
   const final = finalPass === 'revise' ? reviseJSON : draftJSON
   await supabase.from('pattern_reveals').update({
     pattern_paragraph: final.pattern_paragraph ?? null,
+    headline: final.headline ?? null,
     evidence_json: final.evidence ?? null,
     failure_prediction: final.failure_prediction ?? null,
     thrive_conditions: final.thrive_conditions ?? null,

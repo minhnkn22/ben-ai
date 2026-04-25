@@ -13,6 +13,7 @@ type Evidence = {
 
 type PatternReveal = {
   id: string
+  headline?: string
   pattern_paragraph: string | null
   evidence_json: Evidence[] | null
   failure_prediction: string | null
@@ -44,7 +45,7 @@ export default function RevealClient({ reveal: initialReveal, polling }: Props) 
     const interval = setInterval(async () => {
       const { data } = await supabase
         .from('pattern_reveals')
-        .select('id, pattern_paragraph, evidence_json, failure_prediction, thrive_conditions, one_question, status')
+        .select('id, headline, pattern_paragraph, evidence_json, failure_prediction, thrive_conditions, one_question, status')
         .eq('id', reveal.id)
         .single()
       if (data && (data.status === 'completed' || data.status === 'failed')) {
@@ -176,6 +177,20 @@ export default function RevealClient({ reveal: initialReveal, polling }: Props) 
 
         {/* Label */}
         <p style={{ ...sectionLabel, marginBottom: '24px' }}>Your Pattern Reveal</p>
+
+        {/* Headline */}
+        {reveal.headline && (
+          <h1 style={{
+            fontSize: 'clamp(24px, 4vw, 36px)',
+            fontWeight: 700,
+            letterSpacing: '-0.03em',
+            lineHeight: 1.15,
+            marginBottom: '24px',
+            color: 'var(--text)',
+          }}>
+            {reveal.headline}
+          </h1>
+        )}
 
         {/* 1. Pattern paragraph — the main event */}
         <section style={{ marginBottom: '48px' }}>
