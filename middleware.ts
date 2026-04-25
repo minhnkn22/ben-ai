@@ -4,7 +4,7 @@ import { createServerClient, type CookieOptions } from '@supabase/ssr'
 
 // Routes that don't require authentication
 const PUBLIC_ROUTES = ['/', '/login', '/auth/callback']
-const PUBLIC_API_ROUTES = ['/api/auth']
+const PUBLIC_API_ROUTES = ['/api/auth', '/api/setup-feedback-table']
 
 export async function middleware(request: NextRequest) {
   const response = await updateSession(request)
