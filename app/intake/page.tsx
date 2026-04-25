@@ -2,11 +2,12 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 
 type Message = { role: 'user' | 'assistant'; content: string }
 
 const WAIT_MESSAGES = [
-  'Reading your CV…',
+  'Reading your story…',
   'Finding the pattern…',
   'Checking the details…',
   'Almost there…',
@@ -26,11 +27,17 @@ export default function IntakePage() {
   const [waitMsg, setWaitMsg] = useState(WAIT_MESSAGES[0])
   const waitTimerRef = useRef<NodeJS.Timeout | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLTextAreaElement>(null)
   const router = useRouter()
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
+
+  function autoResize(el: HTMLTextAreaElement) {
+    el.style.height = 'auto'
+    el.style.height = Math.min(el.scrollHeight, 180) + 'px'
+  }
 
   async function sendMessage() {
     if (!input.trim() || loading) return
@@ -38,6 +45,7 @@ export default function IntakePage() {
     const newMessages = [...messages, userMsg]
     setMessages(newMessages)
     setInput('')
+    if (inputRef.current) { inputRef.current.style.height = 'auto' }
     setLoading(true)
 
     try {
@@ -47,20 +55,13 @@ export default function IntakePage() {
         body: JSON.stringify({ messages: newMessages, stage: 'intake', cvUploaded }),
       })
 
-      if (!res.ok) {
-        console.error('Chat API error:', res.status)
-        setLoading(false)
-        return
-      }
+      if (!res.ok) { console.error('Chat API error:', res.status); return }
 
       const data = await res.json()
-
       if (data.content) {
         setMessages(prev => [...prev, { role: 'assistant', content: data.content }])
       }
-
       if (data.readyToSynthesize && cvUploaded) {
-        setLoading(false)
         await startSynthesis(newMessages)
         return
       }
@@ -75,10 +76,8 @@ export default function IntakePage() {
     const file = e.target.files?.[0]
     if (!file) return
     setCvName(file.name)
-
     const formData = new FormData()
     formData.append('cv', file)
-
     try {
       const res = await fetch('/api/cv-upload', { method: 'POST', body: formData })
       const data = await res.json()
@@ -104,7 +103,6 @@ export default function IntakePage() {
       idx = (idx + 1) % WAIT_MESSAGES.length
       setWaitMsg(WAIT_MESSAGES[idx])
     }, 8000)
-
     try {
       const res = await fetch('/api/reveal', {
         method: 'POST',
@@ -112,9 +110,7 @@ export default function IntakePage() {
         body: JSON.stringify({ messages: transcriptMessages }),
       })
       const data = await res.json()
-      if (data.revealId) {
-        router.push(`/reveal/${data.revealId}`)
-      }
+      if (data.revealId) router.push(`/reveal/${data.revealId}`)
     } catch (err) {
       console.error('Synthesis error:', err)
     } finally {
@@ -125,75 +121,206 @@ export default function IntakePage() {
 
   if (synthesizing) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-stone-50">
-        <div className="text-center">
-          <div key={waitMsg} className="text-stone-600 text-lg animate-pulse transition-opacity duration-700">
-            {waitMsg}
-          </div>
+      <div style={{
+        minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        background: 'var(--bg)', fontFamily: 'var(--font)',
+      }}>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{
+            width: '32px', height: '32px', borderRadius: '50%',
+            border: '2px solid var(--border)',
+            borderTopColor: 'var(--text)',
+            animation: 'spin 0.8s linear infinite',
+            margin: '0 auto 20px',
+          }} />
+          <p style={{ fontSize: '14px', color: 'var(--text-muted)' }}>{waitMsg}</p>
         </div>
+        <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-stone-50 flex flex-col max-w-2xl mx-auto px-4">
-      <div className="py-6 border-b border-stone-100">
-        <h1 className="text-stone-900 font-semibold">Ben</h1>
-      </div>
+    <div style={{
+      height: '100vh', display: 'flex', flexDirection: 'column',
+      background: 'var(--bg)', fontFamily: 'var(--font)',
+    }}>
+      {/* Header */}
+      <header style={{
+        flexShrink: 0,
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        padding: '0 20px', height: '56px',
+        borderBottom: '1px solid var(--border)',
+      }}>
+        <Link href="/" style={{ fontWeight: 600, fontSize: '15px', color: 'var(--text)', textDecoration: 'none' }}>
+          Ben
+        </Link>
 
-      <div className="flex-1 overflow-y-auto py-6 space-y-4">
-        {messages.map((msg, i) => (
-          <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-            <div
-              className={`max-w-prose px-4 py-3 rounded-2xl text-sm leading-relaxed ${
-                msg.role === 'user'
-                  ? 'bg-stone-900 text-white rounded-br-sm'
-                  : 'bg-white text-stone-800 border border-stone-100 rounded-bl-sm'
-              }`}
-            >
-              {msg.content}
-            </div>
-          </div>
-        ))}
-        {loading && (
-          <div className="flex justify-start">
-            <div className="bg-white border border-stone-100 px-4 py-3 rounded-2xl rounded-bl-sm">
-              <span className="text-stone-400 text-sm">…</span>
-            </div>
+        {/* CV upload */}
+        {!cvUploaded ? (
+          <label style={{
+            display: 'flex', alignItems: 'center', gap: '6px',
+            fontSize: '13px', color: 'var(--text-muted)',
+            cursor: 'pointer', padding: '6px 12px',
+            border: '1px solid var(--border)', borderRadius: '6px',
+            transition: 'border-color 0.15s',
+          }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
+            </svg>
+            Upload CV
+            <input type="file" accept=".pdf,.docx" style={{ display: 'none' }} onChange={handleCvUpload} />
+          </label>
+        ) : (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: '6px',
+            fontSize: '13px', color: 'var(--text-muted)',
+            padding: '6px 12px',
+          }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <polyline points="20 6 9 17 4 12"/>
+            </svg>
+            {cvName}
           </div>
         )}
-        <div ref={messagesEndRef} />
+      </header>
+
+      {/* Messages */}
+      <div style={{
+        flex: 1, overflowY: 'auto',
+        padding: '0',
+      }}>
+        <div style={{ maxWidth: '680px', margin: '0 auto', padding: '32px 20px' }}>
+          {messages.map((msg, i) => (
+            <div
+              key={i}
+              style={{
+                display: 'flex',
+                justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start',
+                marginBottom: '20px',
+              }}
+            >
+              {msg.role === 'assistant' ? (
+                /* Ben message: no bubble, plain prose */
+                <div style={{ maxWidth: '88%' }}>
+                  <p style={{
+                    fontSize: '15px', lineHeight: 1.75,
+                    color: 'var(--text)',
+                    whiteSpace: 'pre-wrap',
+                  }}>
+                    {msg.content}
+                  </p>
+                </div>
+              ) : (
+                /* User message: gray pill */
+                <div style={{
+                  maxWidth: '72%',
+                  background: 'var(--user-bubble)',
+                  borderRadius: '18px',
+                  padding: '10px 16px',
+                }}>
+                  <p style={{
+                    fontSize: '15px', lineHeight: 1.65,
+                    color: 'var(--text)',
+                    whiteSpace: 'pre-wrap',
+                  }}>
+                    {msg.content}
+                  </p>
+                </div>
+              )}
+            </div>
+          ))}
+
+          {loading && (
+            <div style={{ display: 'flex', justifyContent: 'flex-start', marginBottom: '20px' }}>
+              <div style={{ display: 'flex', gap: '4px', padding: '12px 4px' }}>
+                {[0, 1, 2].map(i => (
+                  <div key={i} style={{
+                    width: '6px', height: '6px', borderRadius: '50%',
+                    background: 'var(--border-focus)',
+                    animation: `bounce 1.2s ease-in-out ${i * 0.2}s infinite`,
+                  }} />
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div ref={messagesEndRef} />
+        </div>
       </div>
 
-      {!cvUploaded && messages.length >= 3 && (
-        <div className="py-3 border-t border-stone-100">
-          <label className="flex items-center gap-2 text-sm text-stone-500 cursor-pointer hover:text-stone-700">
-            <input type="file" accept=".pdf,.docx" className="hidden" onChange={handleCvUpload} />
-            <span>+ Upload your CV</span>
-            {cvName && <span className="text-stone-400">({cvName})</span>}
-          </label>
-        </div>
-      )}
-
-      <div className="py-4 border-t border-stone-100">
-        <div className="flex gap-2">
-          <input
+      {/* Input bar */}
+      <div style={{
+        flexShrink: 0,
+        borderTop: '1px solid var(--border)',
+        padding: '12px 20px 16px',
+        background: 'var(--bg)',
+      }}>
+        <div style={{
+          maxWidth: '680px', margin: '0 auto',
+          display: 'flex', gap: '10px', alignItems: 'flex-end',
+        }}>
+          <textarea
+            ref={inputRef}
             value={input}
-            onChange={e => setInput(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && !e.shiftKey && sendMessage()}
-            placeholder="Type your answer…"
+            onChange={e => { setInput(e.target.value); autoResize(e.target) }}
+            onKeyDown={e => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault()
+                sendMessage()
+              }
+            }}
+            placeholder="Reply…"
             disabled={loading}
-            className="flex-1 px-4 py-3 border border-stone-200 rounded-lg text-sm text-stone-900 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-stone-300 disabled:opacity-50"
+            rows={1}
+            style={{
+              flex: 1, padding: '11px 14px',
+              fontSize: '15px', lineHeight: 1.5,
+              border: '1px solid var(--border)',
+              borderRadius: '12px', outline: 'none',
+              resize: 'none', overflow: 'hidden',
+              color: 'var(--text)', background: 'var(--bg)',
+              fontFamily: 'var(--font)',
+              transition: 'border-color 0.15s',
+              opacity: loading ? 0.5 : 1,
+            }}
+            onFocus={e => (e.currentTarget.style.borderColor = 'var(--border-focus)')}
+            onBlur={e => (e.currentTarget.style.borderColor = 'var(--border)')}
           />
           <button
             onClick={sendMessage}
             disabled={loading || !input.trim()}
-            className="px-4 py-3 bg-stone-900 text-white rounded-lg text-sm font-medium hover:bg-stone-800 disabled:opacity-40 transition-colors"
+            style={{
+              flexShrink: 0,
+              width: '40px', height: '40px',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              background: input.trim() && !loading ? 'var(--accent)' : 'var(--bg-hover)',
+              color: input.trim() && !loading ? '#fff' : 'var(--text-muted)',
+              border: 'none', borderRadius: '10px',
+              cursor: input.trim() && !loading ? 'pointer' : 'not-allowed',
+              transition: 'background 0.15s',
+            }}
           >
-            Send
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <line x1="12" y1="19" x2="12" y2="5"/>
+              <polyline points="5 12 12 5 19 12"/>
+            </svg>
           </button>
         </div>
+        <p style={{
+          maxWidth: '680px', margin: '8px auto 0',
+          fontSize: '11px', color: 'var(--text-placeholder)', textAlign: 'center',
+        }}>
+          Enter to send · Shift+Enter for new line
+        </p>
       </div>
+
+      <style>{`
+        @keyframes bounce {
+          0%, 60%, 100% { transform: translateY(0) }
+          30% { transform: translateY(-6px) }
+        }
+      `}</style>
     </div>
   )
 }
