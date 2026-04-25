@@ -10,6 +10,7 @@ type Evidence = {
 
 type PatternReveal = {
   id: string
+  headline?: string
   pattern_paragraph: string | null
   evidence_json: Evidence[] | null
   failure_prediction: string | null
@@ -18,15 +19,16 @@ type PatternReveal = {
   status: string
 }
 
-export default async function RevealPage({ params }: { params: { id: string } }) {
+export default async function RevealPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params
   const supabase = await createClient()
 
   const { data: { user } } = await supabase.auth.getUser()
 
   const { data: reveal } = await supabase
     .from('pattern_reveals')
-    .select('id, pattern_paragraph, evidence_json, failure_prediction, thrive_conditions, one_question, status')
-    .eq('id', params.id)
+    .select('id, headline, pattern_paragraph, evidence_json, failure_prediction, thrive_conditions, one_question, status')
+    .eq('id', id)
     .eq('user_id', user!.id)
     .single()
 
