@@ -4,6 +4,12 @@
 
 Ben is a career counselor AI that produces a Pattern Reveal: a specific, resonant diagnosis of why the user's past jobs haven't clicked. Phase 1 MVP tests the wedge on 11 Marks.
 
+## Supabase
+- Project: `ben-dev` (ref: `jvogcdhcaknhkdusrpca`) — separate from Moon
+- Dashboard: https://supabase.com/dashboard/project/jvogcdhcaknhkdusrpca
+- Email confirmation: disabled (autoconfirm on)
+- Redirect URLs: `https://ben-ai-opal.vercel.app/**`, `http://localhost:3000/**`
+
 ## Stack
 - Next.js 16 App Router + TypeScript + Tailwind
 - Supabase (@supabase/ssr) for auth + database
