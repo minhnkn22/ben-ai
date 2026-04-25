@@ -25,7 +25,6 @@ async function runPass(systemPrompt: string, userContent: string): Promise<strin
 }
 
 function parseJSON(raw: string): Record<string, unknown> | null {
-  // Strip markdown fences if present
   const cleaned = raw.replace(/^```(?:json)?\n?/m, '').replace(/\n?```\s*$/m, '').trim()
   try {
     return JSON.parse(cleaned)
@@ -34,12 +33,49 @@ function parseJSON(raw: string): Record<string, unknown> | null {
   }
 }
 
+function formatAssessmentContext(assessment: Record<string, unknown> | null): string {
+  if (!assessment) return ''
+
+  const lines: string[] = []
+
+  if (assessment.mbti) lines.push(`- MBTI: ${assessment.mbti}`)
+
+  if (assessment.enneagram) {
+    const enneagramLabels: Record<number, string> = {
+      1: 'Perfectionist', 2: 'Helper', 3: 'Achiever', 4: 'Individualist',
+      5: 'Investigator', 6: 'Loyalist', 7: 'Enthusiast', 8: 'Challenger', 9: 'Peacemaker',
+    }
+    const num = assessment.enneagram as number
+    lines.push(`- Enneagram: ${num} (${enneagramLabels[num] ?? ''})`)
+  }
+
+  const oceanFields = [
+    { key: 'ocean_openness', label: 'Openness' },
+    { key: 'ocean_conscientiousness', label: 'Conscientiousness' },
+    { key: 'ocean_extraversion', label: 'Extraversion' },
+    { key: 'ocean_agreeableness', label: 'Agreeableness' },
+    { key: 'ocean_neuroticism', label: 'Neuroticism' },
+  ]
+  const oceanParts = oceanFields
+    .filter(f => assessment[f.key] != null)
+    .map(f => `${f.label} ${assessment[f.key]}/10`)
+
+  if (oceanParts.length > 0) lines.push(`- Big 5: ${oceanParts.join(', ')}`)
+
+  if (lines.length === 0) return ''
+
+  return `\n\nPERSONALITY CONTEXT (self-reported):\n${lines.join('\n')}`
+}
+
 export async function POST(req: NextRequest) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { messages } = await req.json()
+  const body = await req.json()
+  // revealId may be provided if coming from /assessment (resume a pending reveal)
+  const incomingRevealId: string | null = body.revealId ?? null
+  let messages: Array<{ role: string; content: string }> = body.messages ?? []
 
   // Fetch the user's latest CV
   const { data: cvDoc } = await supabase
@@ -51,30 +87,71 @@ export async function POST(req: NextRequest) {
     .single()
 
   const cvText = cvDoc?.parsed_text ?? '(no CV uploaded)'
-  const transcriptText = messages
-    .map((m: { role: string; content: string }) => `${m.role === 'user' ? 'User' : 'Ben'}: ${m.content}`)
-    .join('\n\n')
 
-  // Create the reveal row in pending state
-  const { data: revealRow } = await supabase
-    .from('pattern_reveals')
-    .insert({
-      user_id: user.id,
-      cv_document_id: cvDoc?.id ?? null,
-      status: 'generating',
-      model_used: 'gemini-2.0-flash',
-    })
-    .select('id')
-    .single()
+  let revealId: string
 
-  if (!revealRow) {
-    return NextResponse.json({ error: 'Failed to create reveal' }, { status: 500 })
+  if (incomingRevealId) {
+    // Resume a pending reveal — fetch transcript from draft_json
+    const { data: existingReveal } = await supabase
+      .from('pattern_reveals')
+      .select('id, draft_json')
+      .eq('id', incomingRevealId)
+      .eq('user_id', user.id)
+      .single()
+
+    if (!existingReveal) {
+      return NextResponse.json({ error: 'Reveal not found' }, { status: 404 })
+    }
+
+    revealId = existingReveal.id
+
+    // Extract stored transcript if messages not provided
+    if (messages.length === 0 && existingReveal.draft_json?.pending_transcript) {
+      messages = existingReveal.draft_json.pending_transcript as Array<{ role: string; content: string }>
+    }
+
+    // Update status to generating and clear temp draft_json
+    await supabase
+      .from('pattern_reveals')
+      .update({ status: 'generating', draft_json: null, cv_document_id: cvDoc?.id ?? null })
+      .eq('id', revealId)
+  } else {
+    // Fresh reveal — create the row
+    const { data: revealRow } = await supabase
+      .from('pattern_reveals')
+      .insert({
+        user_id: user.id,
+        cv_document_id: cvDoc?.id ?? null,
+        status: 'generating',
+        model_used: 'gemini-2.0-flash',
+      })
+      .select('id')
+      .single()
+
+    if (!revealRow) {
+      return NextResponse.json({ error: 'Failed to create reveal' }, { status: 500 })
+    }
+
+    revealId = revealRow.id
   }
 
-  const revealId = revealRow.id
+  // Fetch the user's latest assessment (linked to this reveal or most recent)
+  const { data: assessment } = await supabase
+    .from('assessments')
+    .select('mbti, enneagram, ocean_openness, ocean_conscientiousness, ocean_extraversion, ocean_agreeableness, ocean_neuroticism')
+    .eq('user_id', user.id)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .single()
+
+  const transcriptText = messages
+    .map((m) => `${m.role === 'user' ? 'User' : 'Ben'}: ${m.content}`)
+    .join('\n\n')
+
+  const assessmentContext = formatAssessmentContext(assessment as Record<string, unknown> | null)
 
   // Run the 3-pass pipeline async
-  runSynthesisPipeline(supabase, revealId, user.id, transcriptText, cvText).catch(console.error)
+  runSynthesisPipeline(supabase, revealId, transcriptText, cvText, assessmentContext).catch(console.error)
 
   // Return the reveal ID immediately so the client can navigate to /reveal/[id]
   return NextResponse.json({ revealId })
@@ -84,9 +161,9 @@ async function runSynthesisPipeline(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   supabase: any,
   revealId: string,
-  userId: string,
   transcriptText: string,
-  cvText: string
+  cvText: string,
+  assessmentContext: string
 ) {
   const draftPrompt = loadPrompt('02-draft.md')
   const critiquePrompt = loadPrompt('03-critique.md')
@@ -102,7 +179,7 @@ async function runSynthesisPipeline(
 ${transcriptText}
 
 ## CV text
-${cvText}
+${cvText}${assessmentContext}
 
 ## Goals (optional)
 none
@@ -132,7 +209,7 @@ ${JSON.stringify(draftJSON, null, 2)}
 ${transcriptText}
 
 ## CV text
-${cvText}
+${cvText}${assessmentContext}
 
 Now run the 4-criterion gate check. Return only the JSON object.`
 
@@ -140,7 +217,6 @@ Now run the 4-criterion gate check. Return only the JSON object.`
     const critiqueJSON = parseJSON(critiqueRaw)
 
     if (!critiqueJSON) {
-      // Critique failed to return JSON — promote draft anyway, flag it
       await saveFinalReveal(supabase, revealId, draftJSON, null, null, 'draft')
       return
     }
@@ -148,7 +224,6 @@ Now run the 4-criterion gate check. Return only the JSON object.`
     const allPass = critiqueJSON.overall_pass === true && critiqueJSON.horoscope_drift_detected === false
 
     if (allPass) {
-      // Draft cleared the gate — no revise pass needed
       await saveFinalReveal(supabase, revealId, draftJSON, critiqueJSON, null, 'draft')
       return
     }
@@ -168,7 +243,7 @@ ${JSON.stringify(critiqueJSON, null, 2)}
 ${transcriptText}
 
 ## CV text
-${cvText}
+${cvText}${assessmentContext}
 
 Now produce the revised Pattern Reveal per the schema. Return only the JSON object.`
 
@@ -176,7 +251,6 @@ Now produce the revised Pattern Reveal per the schema. Return only the JSON obje
     const reviseJSON = parseJSON(reviseRaw)
 
     if (!reviseJSON) {
-      // Revise failed to return JSON — promote draft
       await saveFinalReveal(supabase, revealId, draftJSON, critiqueJSON, { raw: reviseRaw, error: 'non-json output' }, 'draft')
       return
     }

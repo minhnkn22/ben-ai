@@ -62,7 +62,7 @@ export default function IntakePage() {
         setMessages(prev => [...prev, { role: 'assistant', content: data.content }])
       }
       if (data.readyToSynthesize && cvUploaded) {
-        await startSynthesis(newMessages)
+        await routeToAssessment(newMessages)
         return
       }
     } catch (err) {
@@ -96,23 +96,37 @@ export default function IntakePage() {
     }
   }
 
-  async function startSynthesis(transcriptMessages: Message[]) {
+  async function routeToAssessment(transcriptMessages: Message[]) {
     setSynthesizing(true)
     let idx = 0
     waitTimerRef.current = setInterval(() => {
       idx = (idx + 1) % WAIT_MESSAGES.length
       setWaitMsg(WAIT_MESSAGES[idx])
     }, 8000)
+
     try {
-      const res = await fetch('/api/reveal', {
+      // Save the transcript to session storage so the reveal route can access it
+      // We create a pending reveal row now so we have an ID to pass to /assessment
+      const res = await fetch('/api/reveal/prepare', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ messages: transcriptMessages }),
       })
       const data = await res.json()
-      if (data.revealId) router.push(`/reveal/${data.revealId}`)
+      if (data.revealId) {
+        // Store transcript in sessionStorage for the reveal route to pick up
+        sessionStorage.setItem(`transcript_${data.revealId}`, JSON.stringify(transcriptMessages))
+        router.push(`/assessment?reveal_id=${data.revealId}`)
+      } else {
+        // Fallback: go to assessment without reveal_id
+        sessionStorage.setItem('pending_transcript', JSON.stringify(transcriptMessages))
+        router.push('/assessment')
+      }
     } catch (err) {
-      console.error('Synthesis error:', err)
+      console.error('routeToAssessment error:', err)
+      // Fallback: go directly to assessment
+      sessionStorage.setItem('pending_transcript', JSON.stringify(transcriptMessages))
+      router.push('/assessment')
     } finally {
       if (waitTimerRef.current) clearInterval(waitTimerRef.current)
       setSynthesizing(false)
