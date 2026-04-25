@@ -1,5 +1,4 @@
 import { createClient as createAdminClient } from '@supabase/supabase-js'
-import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import AdminDashboard from './AdminDashboard'
 
@@ -8,24 +7,10 @@ export default async function AdminPage({
 }: {
   searchParams: Promise<{ user?: string }>
 }) {
-  // Auth check
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
-
   const adminClient = createAdminClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   )
-
-  // Verify admin
-  const { data: myProfile } = await adminClient
-    .from('profiles')
-    .select('is_admin')
-    .eq('id', user.id)
-    .single()
-
-  if (!myProfile?.is_admin) redirect('/')
 
   const { user: selectedUserId } = await searchParams
 
@@ -37,7 +22,7 @@ export default async function AdminPage({
 
   // For each profile, get latest reveal status + reaction verdict
   const profilesWithMeta = await Promise.all(
-    (profiles ?? []).map(async (p) => {
+    (profiles ?? []).map(async (p: { id: string; email: string; last_active: string }) => {
       const { data: reveals } = await adminClient
         .from('pattern_reveals')
         .select('id, status')

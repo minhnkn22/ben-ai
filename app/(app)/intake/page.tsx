@@ -2,7 +2,6 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import Link from 'next/link'
 
 type Message = { role: 'user' | 'assistant'; content: string }
 
@@ -105,8 +104,6 @@ export default function IntakePage() {
     }, 8000)
 
     try {
-      // Save the transcript to session storage so the reveal route can access it
-      // We create a pending reveal row now so we have an ID to pass to /assessment
       const res = await fetch('/api/reveal/prepare', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -114,17 +111,14 @@ export default function IntakePage() {
       })
       const data = await res.json()
       if (data.revealId) {
-        // Store transcript in sessionStorage for the reveal route to pick up
         sessionStorage.setItem(`transcript_${data.revealId}`, JSON.stringify(transcriptMessages))
         router.push(`/assessment?reveal_id=${data.revealId}`)
       } else {
-        // Fallback: go to assessment without reveal_id
         sessionStorage.setItem('pending_transcript', JSON.stringify(transcriptMessages))
         router.push('/assessment')
       }
     } catch (err) {
       console.error('routeToAssessment error:', err)
-      // Fallback: go directly to assessment
       sessionStorage.setItem('pending_transcript', JSON.stringify(transcriptMessages))
       router.push('/assessment')
     } finally {
@@ -136,7 +130,7 @@ export default function IntakePage() {
   if (synthesizing) {
     return (
       <div style={{
-        minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center',
         background: 'var(--bg)', fontFamily: 'var(--font)',
       }}>
         <div style={{ textAlign: 'center' }}>
@@ -156,20 +150,16 @@ export default function IntakePage() {
 
   return (
     <div style={{
-      height: '100vh', display: 'flex', flexDirection: 'column',
+      height: '100%', display: 'flex', flexDirection: 'column',
       background: 'var(--bg)', fontFamily: 'var(--font)',
     }}>
-      {/* Header */}
+      {/* Header — CV upload only, no wordmark */}
       <header style={{
         flexShrink: 0,
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
         padding: '0 20px', height: '56px',
         borderBottom: '1px solid var(--border)',
       }}>
-        <Link href="/" style={{ fontWeight: 600, fontSize: '15px', color: 'var(--text)', textDecoration: 'none' }}>
-          Ben
-        </Link>
-
         {/* CV upload */}
         {!cvUploaded ? (
           <label style={{
@@ -215,7 +205,6 @@ export default function IntakePage() {
               }}
             >
               {msg.role === 'assistant' ? (
-                /* Ben message: no bubble, plain prose */
                 <div style={{ maxWidth: '88%' }}>
                   <p style={{
                     fontSize: '15px', lineHeight: 1.75,
@@ -226,7 +215,6 @@ export default function IntakePage() {
                   </p>
                 </div>
               ) : (
-                /* User message: gray pill */
                 <div style={{
                   maxWidth: '72%',
                   background: 'var(--user-bubble)',
